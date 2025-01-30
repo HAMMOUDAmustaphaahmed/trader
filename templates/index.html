@@ -3,15 +3,35 @@
 <head>
     <title>Advanced Whale Detector</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; margin: 20px; background: #f8f9fa; }
-        .card { 
-            background: white; border-radius: 8px; padding: 20px; margin: 15px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1); transition: all 0.3s ease;
-            border-left: 4px solid;
+        body { 
+            font-family: 'Segoe UI', sans-serif; 
+            margin: 20px; 
+            background: #f8f9fa; 
         }
-        .whale { border-color: #ffd700; background: #fff9e6; }
-        .details { margin-top: 15px; font-size: 0.9em; color: #666; }
-        .candle-info { margin-top: 10px; padding: 10px; background: #f8f9fa; border-radius: 4px; }
+        .card { 
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 15px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+            border-left: 4px solid transparent;
+        }
+        .whale { 
+            border-color: #ffd700; 
+            background: #fff9e6; 
+        }
+        .details { 
+            margin-top: 15px; 
+            font-size: 0.9em; 
+            color: #666; 
+        }
+        .candle-info { 
+            margin-top: 10px; 
+            padding: 10px; 
+            background: #f8f9fa; 
+            border-radius: 4px; 
+        }
         .nav-button {
             padding: 10px 20px;
             background-color: #007bff;
@@ -20,6 +40,7 @@
             border-radius: 4px;
             cursor: pointer;
             margin-bottom: 20px;
+            transition: background-color 0.3s;
         }
         .nav-button:hover {
             background-color: #0056b3;
@@ -32,26 +53,34 @@
             border-radius: 4px;
             display: none;
         }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
     </style>
 </head>
 <body>
     <h1 style="color: #2c3e50; margin-bottom: 25px;">🐋 Advanced Whale Detector</h1>
     <button class="nav-button" onclick="window.location.href='/profitable_pairs'">Go to Profitable Pairs</button>
     <div id="error-container" class="error-message"></div>
+    <div id="loading" class="loading">Loading data...</div>
     <div id="dashboard"></div>
 
     <script>
         const dashboard = document.getElementById('dashboard');
         const errorContainer = document.getElementById('error-container');
+        const loadingElement = document.getElementById('loading');
         
         function formatDate(timestamp) {
-            return new Date(timestamp).toLocaleString();
+            return new Date(parseInt(timestamp)).toLocaleString();
         }
 
         function startEventSource() {
             const eventSource = new EventSource('/stream');
             
             eventSource.onmessage = e => {
+                loadingElement.style.display = 'none';
                 try {
                     const data = JSON.parse(e.data);
                     const card = document.createElement('div');
@@ -69,7 +98,7 @@
                     candlesHtml += '</div>';
 
                     card.innerHTML = `
-                        <div>${data.symbol} - $${data.price.toFixed(4)}</div>
+                        <div style="font-size: 1.2em; font-weight: bold;">${data.symbol} - $${data.price.toFixed(4)}</div>
                         <div class="details">
                             <div>Large Transactions: ${data.whale_activity.large_trades_count}</div>
                             <div>Small Transactions: ${data.whale_activity.small_trades_count}</div>

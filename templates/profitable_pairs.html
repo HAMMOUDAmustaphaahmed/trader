@@ -3,7 +3,11 @@
 <head>
     <title>Profitable Pairs</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; margin: 20px; background: #f8f9fa; }
+        body { 
+            font-family: 'Segoe UI', sans-serif; 
+            margin: 20px; 
+            background: #f8f9fa; 
+        }
         .form-container {
             background: white;
             padding: 20px;
@@ -14,7 +18,11 @@
         .form-group {
             margin-bottom: 15px;
         }
-        label { display: block; margin-bottom: 5px; }
+        label { 
+            display: block; 
+            margin-bottom: 5px; 
+            color: #495057;
+        }
         input, select {
             padding: 8px;
             border: 1px solid #ddd;
@@ -28,20 +36,28 @@
             border: none;
             border-radius: 4px;
             cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #0056b3;
         }
         table {
             width: 100%;
             border-collapse: collapse;
             background: white;
             box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-top: 20px;
         }
         th, td {
             padding: 12px;
             text-align: left;
             border-bottom: 1px solid #ddd;
         }
-        th { background-color: #f8f9fa; }
-        .green { color: green; }
+        th { 
+            background-color: #f8f9fa;
+            color: #495057;
+        }
+        .green { color: #28a745; }
         .whale-row { background-color: #fff9e6; }
         .nav-button {
             padding: 10px 20px;
@@ -51,6 +67,24 @@
             border-radius: 4px;
             cursor: pointer;
             margin-bottom: 20px;
+            transition: background-color 0.3s;
+        }
+        .nav-button:hover {
+            background-color: #5a6268;
+        }
+        .error-message {
+            color: #dc3545;
+            padding: 10px;
+            margin: 10px 0;
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            border-radius: 4px;
+        }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            display: none;
         }
     </style>
 </head>
@@ -58,24 +92,41 @@
     <button class="nav-button" onclick="window.location.href='/'">Back to Dashboard</button>
     <h1>Profitable Pairs</h1>
     
+    {% if error %}
+    <div class="error-message">
+        {{ error }}
+    </div>
+    {% endif %}
+    
     <div class="form-container">
-        <form method="POST">
+        <form method="POST" onsubmit="document.getElementById('loading').style.display = 'block';">
             <div class="form-group">
                 <label for="timeframe">Timeframe:</label>
                 <select name="timeframe" id="timeframe" required>
-                    <option value="1h">1 hour</option>
-                    <option value="6h">6 hours</option>
-                    <option value="12h">12 hours</option>
-                    <option value="1d">1 day</option>
-                    <option value="1w">1 week</option>
+                    <option value="1h" {% if timeframe == '1h' %}selected{% endif %}>1 hour</option>
+                    <option value="6h" {% if timeframe == '6h' %}selected{% endif %}>6 hours</option>
+                    <option value="12h" {% if timeframe == '12h' %}selected{% endif %}>12 hours</option>
+                    <option value="1d" {% if timeframe == '1d' %}selected{% endif %}>1 day</option>
+                    <option value="1w" {% if timeframe == '1w' %}selected{% endif %}>1 week</option>
                 </select>
             </div>
             <div class="form-group">
                 <label for="n_candles">Number of Candles:</label>
-                <input type="number" name="n_candles" id="n_candles" required min="1">
+                <input type="number" 
+                       name="n_candles" 
+                       id="n_candles" 
+                       required 
+                       min="1" 
+                       max="1000" 
+                       value="{{ n_candles|default(10) }}"
+                       placeholder="Enter number of candles">
             </div>
-            <button type="submit">Analyze</button>
+            <button type="submit">Analyze Pairs</button>
         </form>
+    </div>
+
+    <div id="loading" class="loading">
+        Analyzing pairs... Please wait...
     </div>
 
     {% if pairs %}
@@ -91,14 +142,40 @@
             {% for pair in pairs %}
             <tr class="{{ 'whale-row' if pair.whale_activity }}">
                 <td>{{ pair.symbol }}</td>
-                <td>{{ pair.cr_open }}/{{ pair.cr_close }}</td>
+                <td>
+                    Open: ${{ "%.4f"|format(pair.cr_open) }}<br>
+                    Close: ${{ "%.4f"|format(pair.cr_close) }}
+                </td>
                 <td class="{{ 'green' if pair.current_price >= 0.8 * pair.cr_close }}">
-                    {{ pair.current_price }}
+                    ${{ "%.4f"|format(pair.current_price) }}
                 </td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
+    {% else %}
+    {% if request.method == 'POST' %}
+    <p style="text-align: center; color: #666; margin-top: 20px;">
+        No profitable pairs found matching the criteria.
+    </p>
     {% endif %}
+    {% endif %}
+
+    <script>
+        // Add loading indicator when form is submitted
+        document.querySelector('form').addEventListener('submit', function() {
+            document.getElementById('loading').style.display = 'block';
+        });
+
+        // Disable form submission if number of candles is invalid
+        document.getElementById('n_candles').addEventListener('input', function(e) {
+            const value = parseInt(e.target.value);
+            if (value < 1 || value > 1000) {
+                e.target.setCustomValidity('Please enter a number between 1 and 1000');
+            } else {
+                e.target.setCustomValidity('');
+            }
+        });
+    </script>
 </body>
 </html>
