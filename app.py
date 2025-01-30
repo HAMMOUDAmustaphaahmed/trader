@@ -1,4 +1,4 @@
-from flask import Flask, render_template, Response
+from flask import Flask, render_template, Response, request
 import requests
 import json
 import pandas as pd
@@ -11,48 +11,9 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 
 # Configuration
-HISTORICAL_DAYS = 180
-WHALE_THRESHOLD = 100000
-MIN_ORDERBOOK_SUM = 1e-9
-REFRESH_INTERVAL = 600
+WHALE_THRESHOLD_LARGE = 100000  # Large transaction threshold
+WHALE_THRESHOLD_SMALL = 100     # Small transaction threshold
 API_TIMEOUT = 10
-CLUSTER_THRESHOLD = 0.1
-
-WHALE_SIGNAL_WEIGHTS = {
-    'large_tx': 0.3,
-    'order_clusters': 0.25,
-    'depth_changes': 0.2,
-    'funding_anomaly': 0.15,
-    'social_spike': 0.1
-}
-
-class DepthAnalyzer:
-    def __init__(self):
-        self.prev_depth = {'bids': [], 'asks': []}
-    
-    def analyze_depth_change(self, current_depth):
-        try:
-            current_bids = [(safe_convert(b[0]), safe_convert(b[1])) for b in current_depth.get('bids', [])]
-            current_asks = [(safe_convert(a[0]), safe_convert(a[1])) for a in current_depth.get('asks', [])]
-            
-            bid_change = self._calculate_depth_change(self.prev_depth['bids'], current_bids)
-            ask_change = self._calculate_depth_change(self.prev_depth['asks'], current_asks)
-            
-            self.prev_depth = {'bids': current_bids, 'asks': current_asks}
-            return {'bid_change': bid_change, 'ask_change': ask_change}
-        except Exception as e:
-            logging.error(f"Depth analysis error: {str(e)}")
-            return {'bid_change': 0, 'ask_change': 0}
-
-    def _calculate_depth_change(self, prev, current):
-        try:
-            prev_total = sum(q for _, q in prev)
-            current_total = sum(q for _, q in current)
-            return (current_total - prev_total) / prev_total if prev_total > 0 else 0
-        except:
-            return 0
-
-depth_analyzer = DepthAnalyzer()
 
 def safe_convert(value, default=0.0):
     try:
@@ -76,174 +37,158 @@ def get_active_pairs():
         )
         return [
             s['symbol'] for s in response.json().get('symbols', [])
-            if s.get('symbol', '').endswith('USDT') and 
-            not any(e in s['symbol'] for e in ['BTC', 'BNB', 'ETH'])
+            if s.get('symbol', '').endswith('USDT')
         ]
     except Exception as e:
         logging.error(f"Error fetching pairs: {str(e)}")
         return []
 
-def detect_order_clusters(order_book):
+def get_candles(symbol, interval, limit):
     try:
-        bids = pd.DataFrame(
-            [(safe_convert(b[0]), safe_convert(b[1])) for b in order_book.get('bids', [])],
-            columns=['price', 'quantity']
+        response = requests.get(
+            f"https://api.binance.com/api/v3/klines",
+            params={'symbol': symbol, 'interval': interval, 'limit': limit},
+            timeout=API_TIMEOUT
         )
-        asks = pd.DataFrame(
-            [(safe_convert(a[0]), safe_convert(a[1])) for a in order_book.get('asks', [])],
-            columns=['price', 'quantity']
-        )
-
-        def cluster_orders(df):
-            clusters = []
-            current_cluster = []
-            prev_price = None
-            
-            for _, row in df.iterrows():
-                if prev_price and abs(row['price'] - prev_price) < CLUSTER_THRESHOLD:
-                    current_cluster.append(row)
-                else:
-                    if current_cluster:
-                        clusters.append(pd.DataFrame(current_cluster))
-                    current_cluster = [row]
-                prev_price = row['price']
-            return [c['quantity'].sum() for c in clusters if not c.empty]
-        
-        return {
-            'bid_clusters': cluster_orders(bids),
-            'ask_clusters': cluster_orders(asks)
-        }
+        data = response.json()
+        return [{'open': float(candle[1]), 'close': float(candle[4])} for candle in data]
     except Exception as e:
-        logging.error(f"Order cluster error: {str(e)}")
-        return {'bid_clusters': [], 'ask_clusters': []}
+        logging.error(f"Error fetching candles: {str(e)}")
+        return []
 
-def detect_liquidity_snipe(trades):
+def detect_whale_activity(symbol):
     try:
-        large_trades = [
-            t for t in trades 
-            if safe_convert(t.get('p')) * safe_convert(t.get('q')) > 100000
-        ]
-        
-        if not large_trades:
-            return {'snipe_detected': False, 'total_size': 0}
-        
-        price_levels = len({round(safe_convert(t['p']), 4) for t in large_trades})
-        time_window = safe_convert(trades[-1].get('T', 0)) - safe_convert(trades[0].get('T', 0))
-        
-        return {
-            'snipe_detected': price_levels > 3 and time_window < 5000,
-            'total_size': sum(safe_convert(t.get('p')) * safe_convert(t.get('q')) for t in large_trades)
-        }
-    except:
-        return {'snipe_detected': False, 'total_size': 0}
-
-def detect_funding_anomaly(symbol):
-    try:
-        futures_data = requests.get(
-            f"https://fapi.binance.com/fapi/v1/premiumIndex?symbol={symbol}",
-            timeout=API_TIMEOUT
-        ).json()
-        
-        return {
-            'funding_anomaly': abs(safe_convert(futures_data.get('lastFundingRate', 0))) > 0.0005,
-            'funding_rate': safe_convert(futures_data.get('lastFundingRate', 0))
-        }
-    except:
-        return {'funding_anomaly': False, 'funding_rate': 0}
-
-def calculate_whale_score(signals):
-    try:
-        return sum(
-            min(max(signals[st], 0), 1) * weight 
-            for st, weight in WHALE_SIGNAL_WEIGHTS.items()
-        )
-    except:
-        return 0
-
-def analyze_pair(symbol):
-    try:
-        # Get core data
-        ticker = requests.get(
-            f"https://api.binance.com/api/v3/ticker/24hr?symbol={symbol}",
-            timeout=API_TIMEOUT
-        ).json()
-        
+        # Get recent trades
         trades = requests.get(
-            "https://api.binance.com/api/v3/aggTrades",
-            params={'symbol': symbol, 'limit': 100},
-            timeout=API_TIMEOUT
-        ).json()
-        
-        order_book = requests.get(
-            f"https://api.binance.com/api/v3/depth?symbol={symbol}&limit=1000",
+            "https://api.binance.com/api/v3/trades",
+            params={'symbol': symbol, 'limit': 1000},
             timeout=API_TIMEOUT
         ).json()
 
-        # Initialize signals
-        signals = {
-            'large_tx': 0,
-            'order_clusters': 0,
-            'depth_changes': 0,
-            'funding_anomaly': 0,
-            'social_spike': 0
-        }
+        # Analyze large transactions
+        large_trades = [t for t in trades if safe_convert(t['price']) * safe_convert(t['qty']) > WHALE_THRESHOLD_LARGE]
+        small_trades = [t for t in trades if safe_convert(t['price']) * safe_convert(t['qty']) < WHALE_THRESHOLD_SMALL]
 
-        # 1. Large transactions
-        large_tx_count = sum(1 for tx in trades 
-                           if safe_convert(tx.get('p')) * safe_convert(tx.get('q')) > WHALE_THRESHOLD)
-        signals['large_tx'] = min(large_tx_count / 10, 1)
-
-        # 2. Order clusters
-        clusters = detect_order_clusters(order_book)
-        total_clusters = len(clusters['bid_clusters']) + len(clusters['ask_clusters'])
-        signals['order_clusters'] = min(total_clusters / 5, 1)
-
-        # 3. Market depth changes
-        depth_changes = depth_analyzer.analyze_depth_change(order_book)
-        signals['depth_changes'] = (abs(depth_changes['bid_change']) + 
-                                  abs(depth_changes['ask_change'])) / 2
-
-        # 4. Funding rate anomaly
-        funding_data = detect_funding_anomaly(symbol)
-        signals['funding_anomaly'] = 1 if funding_data['funding_anomaly'] else 0
-
-        # Calculate final score
-        whale_score = calculate_whale_score(signals)
-        alert = ""
-        if whale_score > 0.7:
-            alert = "🐋 STRONG WHALE ACTIVITY"
-        elif whale_score > 0.4:
-            alert = "⚠️ Moderate activity"
+        # Get dark pool data if available (example implementation)
+        try:
+            dark_pool_data = requests.get(
+                f"https://api.binance.com/api/v3/depth",
+                params={'symbol': symbol, 'limit': 1000},
+                timeout=API_TIMEOUT
+            ).json()
+            large_orders = [
+                order for order in dark_pool_data.get('bids', []) + dark_pool_data.get('asks', [])
+                if safe_convert(order[0]) * safe_convert(order[1]) > WHALE_THRESHOLD_LARGE
+            ]
+        except:
+            large_orders = []
 
         return {
-            'symbol': symbol,
-            'price': safe_convert(ticker.get('lastPrice')),
-            'whale_score': round(whale_score * 100, 1),
-            'alert': alert,
-            'details': {
-                'large_tx': large_tx_count,
-                'order_clusters': total_clusters,
-                'funding_rate': funding_data['funding_rate'],
-                'depth_change': round((depth_changes['bid_change'] + 
-                                     depth_changes['ask_change']) * 100, 1)
-            }
+            'has_whale_activity': bool(large_trades) or bool(large_orders),
+            'large_trades_count': len(large_trades),
+            'small_trades_count': len(small_trades),
+            'large_orders_count': len(large_orders)
         }
-
     except Exception as e:
-        logging.error(f"Analysis failed for {symbol}: {str(e)}", exc_info=True)
-        return None
+        logging.error(f"Error detecting whale activity: {str(e)}")
+        return {'has_whale_activity': False, 'large_trades_count': 0, 'small_trades_count': 0, 'large_orders_count': 0}
 
 @app.route('/stream')
 def data_stream():
     def generate():
         while True:
-            symbols = get_active_pairs()
-            for symbol in symbols:
-                if result := analyze_pair(symbol):
-                    yield f"data: {json.dumps(result)}\n\n"
+            pairs = get_active_pairs()
+            for symbol in pairs:
+                try:
+                    # Get current price
+                    ticker = requests.get(
+                        f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}",
+                        timeout=API_TIMEOUT
+                    ).json()
+                    current_price = safe_convert(ticker.get('price'))
+                    
+                    if current_price == 0:
+                        continue
+
+                    # Get last 3 candles
+                    candles = get_candles(symbol, '1h', 3)
+                    
+                    # Get whale activity
+                    whale_data = detect_whale_activity(symbol)
+
+                    data = {
+                        'symbol': symbol,
+                        'price': current_price,
+                        'candles': candles,
+                        'whale_activity': whale_data
+                    }
+                    
+                    yield f"data: {json.dumps(data)}\n\n"
+                except Exception as e:
+                    logging.error(f"Error processing {symbol}: {str(e)}")
                 time.sleep(0.5)
-            time.sleep(REFRESH_INTERVAL)
+            time.sleep(10)  # Refresh interval
     return Response(generate(), mimetype="text/event-stream")
+
+@app.route('/profitable_pairs', methods=['GET', 'POST'])
+def profitable_pairs():
+    if request.method == 'POST':
+        timeframe = request.form.get('timeframe')
+        n_candles = int(request.form.get('n_candles'))
+        
+        profitable_pairs_data = []
+        pairs = get_active_pairs()
+        
+        for symbol in pairs:
+            try:
+                # Get current price
+                ticker = requests.get(
+                    f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}",
+                    timeout=API_TIMEOUT
+                ).json()
+                current_price = safe_convert(ticker.get('price'))
+                
+                if current_price == 0:
+                    continue
+
+                # Get candles
+                candles = get_candles(symbol, timeframe, n_candles)
+                if not candles:
+                    continue
+
+                # Find reference candle (CR)
+                cr = max(candles, key=lambda x: x['close'] - x['open'])
+                if cr['close'] <= cr['open']:  # Skip red candles
+                    continue
+
+                # Calculate moyenne
+                moyenne = (cr['close'] + cr['open']) / 2
+
+                # Check if all subsequent candles are within range
+                cr_index = candles.index(cr)
+                valid = all(
+                    moyenne <= c['open'] <= cr['close'] and moyenne <= c['close'] <= cr['close']
+                    for c in candles[cr_index+1:]
+                )
+
+                if valid:
+                    # Check whale activity
+                    whale_data = detect_whale_activity(symbol)
+                    
+                    profitable_pairs_data.append({
+                        'symbol': symbol,
+                        'cr_open': cr['open'],
+                        'cr_close': cr['close'],
+                        'current_price': current_price,
+                        'whale_activity': whale_data['has_whale_activity']
+                    })
+
+            except Exception as e:
+                logging.error(f"Error processing {symbol}: {str(e)}")
+
+        return render_template('profitable_pairs.html', pairs=profitable_pairs_data)
+    
+    return render_template('profitable_pairs.html', pairs=[])
 
 @app.route('/')
 def index():

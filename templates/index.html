@@ -9,22 +9,26 @@
             box-shadow: 0 2px 8px rgba(0,0,0,0.1); transition: all 0.3s ease;
             border-left: 4px solid;
         }
-        .whale-1 { border-color: #ffd700; background: #fff9e6; }
-        .whale-2 { border-color: #ff6b6b; background: #ffe6e6; }
+        .whale { border-color: #ffd700; background: #fff9e6; }
         .details { margin-top: 15px; font-size: 0.9em; color: #666; }
-        .score-bar { 
-            height: 8px; background: #e9ecef; border-radius: 4px; 
-            margin: 10px 0; overflow: hidden;
+        .candle-info { margin-top: 10px; padding: 10px; background: #f8f9fa; border-radius: 4px; }
+        .nav-button {
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-bottom: 20px;
         }
-        .score-fill { height: 100%; background: #17a2b8; transition: width 0.5s ease; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #dee2e6; }
-        th { background-color: #f8f9fa; color: #6c757d; }
-        .alert { font-weight: bold; margin-bottom: 5px; }
+        .nav-button:hover {
+            background-color: #0056b3;
+        }
     </style>
 </head>
 <body>
     <h1 style="color: #2c3e50; margin-bottom: 25px;">🐋 Advanced Whale Detector</h1>
+    <button class="nav-button" onclick="window.location.href='/profitable_pairs'">Go to Profitable Pairs</button>
     <div id="dashboard"></div>
 
     <script>
@@ -35,30 +39,31 @@
             const data = JSON.parse(e.data);
             const card = document.createElement('div');
             
-            card.className = `card ${data.alert ? 
-                (data.whale_score > 70 ? 'whale-2' : 'whale-1') : ''}`;
+            card.className = `card ${data.whale_activity.has_whale_activity ? 'whale' : ''}`;
             
+            let candlesHtml = '<div class="candle-info"><h3>Last 3 Candles:</h3>';
+            data.candles.forEach((candle, index) => {
+                candlesHtml += `
+                    <div>Candle ${index + 1}:
+                        Open: $${candle.open.toFixed(4)},
+                        Close: $${candle.close.toFixed(4)}
+                    </div>`;
+            });
+            candlesHtml += '</div>';
+
             card.innerHTML = `
-                <div class="alert">${data.alert || 'Normal activity'}</div>
                 <div>${data.symbol} - $${data.price.toFixed(4)}</div>
-                <div class="score-bar">
-                    <div class="score-fill" style="width: ${data.whale_score}%"></div>
-                </div>
                 <div class="details">
-                    <table>
-                        <tr><th>Whale Score</th><td>${data.whale_score}%</td></tr>
-                        <tr><th>Large TXs</th><td>${data.details.large_tx}</td></tr>
-                        <tr><th>Order Clusters</th><td>${data.details.order_clusters}</td></tr>
-                        <tr><th>Funding Rate</th><td>${(data.details.funding_rate * 100).toFixed(4)}%</td></tr>
-                        <tr><th>Depth Change</th><td>${data.details.depth_change}%</td></tr>
-                    </table>
+                    <div>Large Transactions: ${data.whale_activity.large_trades_count}</div>
+                    <div>Small Transactions: ${data.whale_activity.small_trades_count}</div>
+                    <div>Large Orders: ${data.whale_activity.large_orders_count}</div>
                 </div>
+                ${candlesHtml}
             `;
 
             dashboard.insertBefore(card, dashboard.firstChild);
             if(dashboard.children.length > 20) dashboard.lastChild.remove();
         };
     </script>
-    
 </body>
 </html>
