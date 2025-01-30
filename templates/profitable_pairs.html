@@ -56,8 +56,12 @@
         th { 
             background-color: #f8f9fa;
             color: #495057;
+            position: sticky;
+            top: 0;
         }
         .green { color: #28a745; }
+        .red { color: #dc3545; }
+        .yellow { color: #ffc107; }
         .whale-row { background-color: #fff9e6; }
         .nav-button {
             padding: 10px 20px;
@@ -67,47 +71,57 @@
             border-radius: 4px;
             cursor: pointer;
             margin-bottom: 20px;
-            transition: background-color 0.3s;
         }
-        .nav-button:hover {
-            background-color: #5a6268;
+        .stats-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
         }
-        .error-message {
-            color: #dc3545;
-            padding: 10px;
-            margin: 10px 0;
-            background: #f8d7da;
-            border: 1px solid #f5c6cb;
-            border-radius: 4px;
+        .stat-card {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
-        .loading {
-            text-align: center;
-            padding: 20px;
-            color: #666;
+        .market-conditions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .condition-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.9em;
+        }
+        .loading-overlay {
             display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255,255,255,0.9);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 15px rgba(0,0,0,0.2);
+            z-index: 1000;
         }
     </style>
 </head>
 <body>
     <button class="nav-button" onclick="window.location.href='/'">Back to Dashboard</button>
-    <h1>Profitable Pairs</h1>
-    
-    {% if error %}
-    <div class="error-message">
-        {{ error }}
-    </div>
-    {% endif %}
+    <h1>Profitable Pairs Analysis</h1>
     
     <div class="form-container">
-        <form method="POST" onsubmit="document.getElementById('loading').style.display = 'block';">
+        <form id="analysisForm">
             <div class="form-group">
                 <label for="timeframe">Timeframe:</label>
                 <select name="timeframe" id="timeframe" required>
-                    <option value="1h" {% if timeframe == '1h' %}selected{% endif %}>1 hour</option>
-                    <option value="6h" {% if timeframe == '6h' %}selected{% endif %}>6 hours</option>
-                    <option value="12h" {% if timeframe == '12h' %}selected{% endif %}>12 hours</option>
-                    <option value="1d" {% if timeframe == '1d' %}selected{% endif %}>1 day</option>
-                    <option value="1w" {% if timeframe == '1w' %}selected{% endif %}>1 week</option>
+                    <option value="1h">1 hour</option>
+                    <option value="6h">6 hours</option>
+                    <option value="12h">12 hours</option>
+                    <option value="1d">1 day</option>
+                    <option value="1w">1 week</option>
                 </select>
             </div>
             <div class="form-group">
@@ -118,62 +132,137 @@
                        required 
                        min="1" 
                        max="1000" 
-                       value="{{ n_candles|default(10) }}"
+                       value="10"
                        placeholder="Enter number of candles">
             </div>
-            <button type="submit">Analyze Pairs</button>
+            <button type="submit">Start Analysis</button>
+            <button type="button" id="stopButton" style="display: none;">Stop Analysis</button>
         </form>
     </div>
 
-    <div id="loading" class="loading">
-        Analyzing pairs... Please wait...
+    <div class="stats-container">
+        <div class="stat-card">
+            <h3>Analysis Stats</h3>
+            <div>Pairs Analyzed: <span id="pairsAnalyzed">0</span></div>
+            <div>Profitable Pairs: <span id="profitablePairs">0</span></div>
+            <div>Success Rate: <span id="successRate">0%</span></div>
+        </div>
     </div>
 
-    {% if pairs %}
-    <table>
+    <div class="loading-overlay" id="loadingOverlay">
+        Analyzing pairs in real-time...
+        <div id="currentPair"></div>
+    </div>
+
+    <table id="resultsTable">
         <thead>
             <tr>
                 <th>Pair</th>
-                <th>Reference Candle (Open/Close)</th>
+                <th>Reference Candle</th>
                 <th>Current Price</th>
+                <th>Market Conditions</th>
+                <th>Whale Activity</th>
+                <th>Time Found</th>
             </tr>
         </thead>
-        <tbody>
-            {% for pair in pairs %}
-            <tr class="{{ 'whale-row' if pair.whale_activity }}">
-                <td>{{ pair.symbol }}</td>
-                <td>
-                    Open: ${{ "%.4f"|format(pair.cr_open) }}<br>
-                    Close: ${{ "%.4f"|format(pair.cr_close) }}
-                </td>
-                <td class="{{ 'green' if pair.current_price >= 0.8 * pair.cr_close }}">
-                    ${{ "%.4f"|format(pair.current_price) }}
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
+        <tbody id="resultsBody"></tbody>
     </table>
-    {% else %}
-    {% if request.method == 'POST' %}
-    <p style="text-align: center; color: #666; margin-top: 20px;">
-        No profitable pairs found matching the criteria.
-    </p>
-    {% endif %}
-    {% endif %}
 
     <script>
-        // Add loading indicator when form is submitted
-        document.querySelector('form').addEventListener('submit', function() {
-            document.getElementById('loading').style.display = 'block';
+        let eventSource = null;
+        let analysisActive = false;
+        const stats = {
+            analyzed: 0,
+            profitable: 0
+        };
+
+        function updateStats() {
+            document.getElementById('pairsAnalyzed').textContent = stats.analyzed;
+            document.getElementById('profitablePairs').textContent = stats.profitable;
+            document.getElementById('successRate').textContent = 
+                ((stats.profitable / stats.analyzed) * 100 || 0).toFixed(1) + '%';
+        }
+
+        function formatDate(isoString) {
+            return new Date(isoString).toLocaleString();
+        }
+
+        function startAnalysis() {
+            if (eventSource) {
+                eventSource.close();
+            }
+            
+            document.getElementById('loadingOverlay').style.display = 'block';
+            document.getElementById('stopButton').style.display = 'inline-block';
+            analysisActive = true;
+
+            eventSource = new EventSource('/profitable_pairs_stream');
+            
+            eventSource.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                
+                if (data.heartbeat) return;
+                
+                stats.analyzed++;
+                stats.profitable++;
+                updateStats();
+
+                const row = document.createElement('tr');
+                row.className = data.whale_activity.has_whale_activity ? 'whale-row' : '';
+                
+                row.innerHTML = `
+                    <td>${data.symbol}</td>
+                    <td>
+                        Open: $${data.cr_open.toFixed(4)}<br>
+                        Close: $${data.cr_close.toFixed(4)}
+                    </td>
+                    <td class="${data.current_price >= 0.8 * data.cr_close ? 'green' : ''}">
+                        $${data.current_price.toFixed(4)}
+                    </td>
+                    <td>
+                        <div class="market-conditions">
+                            <span class="condition-badge ${data.market_conditions.volatility < 3 ? 'green' : 'red'}">
+                                Volatility: ${data.market_conditions.volatility.toFixed(1)}%
+                            </span>
+                            <span class="condition-badge ${data.market_conditions.volume_trend > 1 ? 'green' : 'yellow'}">
+                                Volume: ${data.market_conditions.volume_trend.toFixed(2)}x
+                            </span>
+                        </div>
+                    </td>
+                    <td>
+                        Score: ${data.whale_activity.whale_score}%<br>
+                        Large Trades: ${data.whale_activity.large_trades_count}
+                    </td>
+                    <td>${formatDate(data.timestamp)}</td>
+                `;
+
+                document.getElementById('resultsBody').prepend(row);
+                document.getElementById('currentPair').textContent = `Last analyzed: ${data.symbol}`;
+            };
+
+            eventSource.onerror = function() {
+                if (analysisActive) {
+                    console.log('Connection lost. Reconnecting...');
+                    setTimeout(startAnalysis, 5000);
+                }
+            };
+        }
+
+        document.getElementById('analysisForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            document.getElementById('resultsBody').innerHTML = '';
+            stats.analyzed = 0;
+            stats.profitable = 0;
+            updateStats();
+            startAnalysis();
         });
 
-        // Disable form submission if number of candles is invalid
-        document.getElementById('n_candles').addEventListener('input', function(e) {
-            const value = parseInt(e.target.value);
-            if (value < 1 || value > 1000) {
-                e.target.setCustomValidity('Please enter a number between 1 and 1000');
-            } else {
-                e.target.setCustomValidity('');
+        document.getElementById('stopButton').addEventListener('click', function() {
+            if (eventSource) {
+                eventSource.close();
+                analysisActive = false;
+                document.getElementById('loadingOverlay').style.display = 'none';
+                document.getElementById('stopButton').style.display = 'none';
             }
         });
     </script>
