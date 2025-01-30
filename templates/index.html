@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Advanced Whale Detector</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; margin: 20px; background: #f8f9fa; }
+        .card { 
+            background: white; border-radius: 8px; padding: 20px; margin: 15px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1); transition: all 0.3s ease;
+            border-left: 4px solid;
+        }
+        .whale-1 { border-color: #ffd700; background: #fff9e6; }
+        .whale-2 { border-color: #ff6b6b; background: #ffe6e6; }
+        .details { margin-top: 15px; font-size: 0.9em; color: #666; }
+        .score-bar { 
+            height: 8px; background: #e9ecef; border-radius: 4px; 
+            margin: 10px 0; overflow: hidden;
+        }
+        .score-fill { height: 100%; background: #17a2b8; transition: width 0.5s ease; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #dee2e6; }
+        th { background-color: #f8f9fa; color: #6c757d; }
+        .alert { font-weight: bold; margin-bottom: 5px; }
+    </style>
+</head>
+<body>
+    <h1 style="color: #2c3e50; margin-bottom: 25px;">🐋 Advanced Whale Detector</h1>
+    <div id="dashboard"></div>
+
+    <script>
+        const dashboard = document.getElementById('dashboard');
+        
+        const eventSource = new EventSource('/stream');
+        eventSource.onmessage = e => {
+            const data = JSON.parse(e.data);
+            const card = document.createElement('div');
+            
+            card.className = `card ${data.alert ? 
+                (data.whale_score > 70 ? 'whale-2' : 'whale-1') : ''}`;
+            
+            card.innerHTML = `
+                <div class="alert">${data.alert || 'Normal activity'}</div>
+                <div>${data.symbol} - $${data.price.toFixed(4)}</div>
+                <div class="score-bar">
+                    <div class="score-fill" style="width: ${data.whale_score}%"></div>
+                </div>
+                <div class="details">
+                    <table>
+                        <tr><th>Whale Score</th><td>${data.whale_score}%</td></tr>
+                        <tr><th>Large TXs</th><td>${data.details.large_tx}</td></tr>
+                        <tr><th>Order Clusters</th><td>${data.details.order_clusters}</td></tr>
+                        <tr><th>Funding Rate</th><td>${(data.details.funding_rate * 100).toFixed(4)}%</td></tr>
+                        <tr><th>Depth Change</th><td>${data.details.depth_change}%</td></tr>
+                    </table>
+                </div>
+            `;
+
+            dashboard.insertBefore(card, dashboard.firstChild);
+            if(dashboard.children.length > 20) dashboard.lastChild.remove();
+        };
+    </script>
+    
+</body>
+</html>

@@ -1,0 +1,8 @@
+Flask==2.2.2
+requests==2.28.1
+pandas==1.5.2
+numpy==1.23.4
+scikit-learn==1.1.2
+python-binance
+TA-Lib==0.4.24
+textblob==0.17.1
