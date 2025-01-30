@@ -58,6 +58,37 @@
             padding: 20px;
             color: #666;
         }
+        .details table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-top: 10px;
+            background: #f8f9fa;
+            border-radius: 4px;
+        }
+
+        .details th, .details td {
+            padding: 8px;
+            text-align: center;
+            border: 1px solid #dee2e6;
+            font-size: 0.9em;
+        }
+
+        .details th {
+            background: #e9ecef;
+            font-weight: 600;
+        }
+
+        .whale-score-high {
+            color: #dc3545;
+        }
+
+        .whale-score-medium {
+            color: #ffc107;
+        }
+
+        .whale-score-low {
+            color: #28a745;
+        }
     </style>
 </head>
 <body>
@@ -97,15 +128,39 @@
                     });
                     candlesHtml += '</div>';
 
-                    card.innerHTML = `
-                        <div style="font-size: 1.2em; font-weight: bold;">${data.symbol} - $${data.price.toFixed(4)}</div>
-                        <div class="details">
-                            <div>Large Transactions: ${data.whale_activity.large_trades_count}</div>
-                            <div>Small Transactions: ${data.whale_activity.small_trades_count}</div>
-                            <div>Large Orders: ${data.whale_activity.large_orders_count}</div>
-                        </div>
-                        ${candlesHtml}
-                    `;
+                    <!-- Replace the existing card innerHTML in the script section -->
+                        card.innerHTML = `
+                            <div style="font-size: 1.2em; font-weight: bold;">${data.symbol} - $${data.price.toFixed(4)}</div>
+                            <div class="details">
+                                <table style="width: 100%; margin-top: 10px;">
+                                    <tr>
+                                        <th>Whale Score</th>
+                                        <th>Large TXs</th>
+                                        <th>Small TXs</th>
+                                        <th>Large Orders</th>
+                                        <th>Funding Rate</th>
+                                        <th>Depth Change</th>
+                                    </tr>
+                                    <tr>
+                                        <td>${data.whale_activity.whale_score}%</td>
+                                        <td>${data.whale_activity.large_trades_count}</td>
+                                        <td>${data.whale_activity.small_trades_count}</td>
+                                        <td>${data.whale_activity.large_orders_count}</td>
+                                        <td>${data.whale_activity.funding_rate}%</td>
+                                        <td>${data.whale_activity.depth_change}%</td>
+                                    </tr>
+                                </table>
+                            </div>
+                            <div class="candle-info">
+                                <h3>Last 3 Candles:</h3>
+                                ${data.candles.map((candle, index) => `
+                                    <div>Candle ${index + 1} (${formatDate(candle.timestamp)}):
+                                        Open: $${candle.open.toFixed(4)},
+                                        Close: $${candle.close.toFixed(4)}
+                                    </div>
+                                `).join('')}
+                            </div>
+                        `;
 
                     dashboard.insertBefore(card, dashboard.firstChild);
                     if(dashboard.children.length > 20) dashboard.lastChild.remove();

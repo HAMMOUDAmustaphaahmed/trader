@@ -93,6 +93,29 @@ def get_candles(symbol, interval, limit):
         logging.error(f"Error fetching candles for {symbol}: {str(e)}")
         return []
 
+def calculate_depth_change(current_depth, previous_depth):
+    try:
+        if not previous_depth:
+            return 0
+        current_total = sum(float(price) * float(qty) for price, qty in current_depth.get('bids', [])[:10])
+        previous_total = sum(float(price) * float(qty) for price, qty in previous_depth.get('bids', [])[:10])
+        return ((current_total - previous_total) / previous_total) * 100 if previous_total else 0
+    except:
+        return 0
+
+def get_funding_rate(symbol):
+    try:
+        response = requests.get(
+            f"https://fapi.binance.com/fapi/v1/premiumIndex",
+            params={'symbol': symbol},
+            timeout=API_TIMEOUT
+        )
+        response.raise_for_status()
+        data = response.json()
+        return float(data.get('lastFundingRate', 0)) * 100
+    except:
+        return 0
+
 def detect_whale_activity(symbol):
     try:
         # Get recent trades
@@ -129,22 +152,29 @@ def detect_whale_activity(symbol):
         depth_response.raise_for_status()
         depth_data = depth_response.json()
         
-        large_orders = []
-        for side in ['bids', 'asks']:
-            for order in depth_data.get(side, []):
-                try:
-                    price = float(order[0])
-                    quantity = float(order[1])
-                    if price * quantity > WHALE_THRESHOLD_LARGE:
-                        large_orders.append(order)
-                except (ValueError, TypeError):
-                    continue
+        # Calculate depth change
+        depth_change = calculate_depth_change(depth_data, getattr(detect_whale_activity, 'previous_depth', {}))
+        setattr(detect_whale_activity, 'previous_depth', depth_data)
+
+        # Get funding rate
+        funding_rate = get_funding_rate(symbol)
+
+        # Calculate whale score (0-100)
+        large_trades_score = min(len(large_trades) * 10, 40)  # Max 40 points
+        depth_score = min(abs(depth_change), 30)  # Max 30 points
+        funding_score = min(abs(funding_rate) * 10, 30)  # Max 30 points
+        whale_score = large_trades_score + depth_score + funding_score
 
         return {
-            'has_whale_activity': bool(large_trades) or bool(large_orders),
+            'has_whale_activity': bool(large_trades) or abs(depth_change) > 5 or abs(funding_rate) > 0.1,
             'large_trades_count': len(large_trades),
             'small_trades_count': len(small_trades),
-            'large_orders_count': len(large_orders)
+            'large_orders_count': len([order for side in ['bids', 'asks'] 
+                                    for order in depth_data.get(side, [])
+                                    if float(order[0]) * float(order[1]) > WHALE_THRESHOLD_LARGE]),
+            'whale_score': round(whale_score, 1),
+            'funding_rate': round(funding_rate, 4),
+            'depth_change': round(depth_change, 2)
         }
 
     except Exception as e:
@@ -153,9 +183,12 @@ def detect_whale_activity(symbol):
             'has_whale_activity': False,
             'large_trades_count': 0,
             'small_trades_count': 0,
-            'large_orders_count': 0
+            'large_orders_count': 0,
+            'whale_score': 0,
+            'funding_rate': 0,
+            'depth_change': 0
         }
-
+    
 @app.route('/')
 def index():
     return render_template('index.html')
