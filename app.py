@@ -1,14 +1,5 @@
-from flask import (
-    Flask, 
-    render_template, 
-    Response, 
-    request, 
-    has_request_context, 
-    jsonify, 
-    copy_current_request_context,
-    stream_with_context
-)
-from datetime import datetime, timezone, UTC
+from flask import Flask, render_template, Response, request, jsonify, stream_with_context
+from datetime import datetime, UTC
 import requests
 import json
 import pandas as pd
@@ -19,7 +10,6 @@ from threading import Thread, Lock
 from queue import Queue
 import numpy as np
 from collections import deque
-from functools import wraps
 
 app = Flask(__name__)
 app.config['PROPAGATE_EXCEPTIONS'] = True
@@ -38,15 +28,6 @@ profitable_pairs_queue = Queue()
 analysis_lock = Lock()
 pair_analysis_cache = {}
 cache_timeout = 300  # 5 minutes
-
-def with_app_context(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if not has_request_context():
-            with app.test_request_context():
-                return f(*args, **kwargs)
-        return f(*args, **kwargs)
-    return decorated
 
 class MarketAnalyzer:
     def __init__(self):
@@ -186,7 +167,6 @@ def get_active_pairs():
         logging.error(f"Error fetching pairs: {str(e)}")
         return []
 
-@with_app_context
 def get_current_price(symbol):
     cache_key = f"price_{symbol}"
     if cache_key in pair_analysis_cache:
@@ -206,7 +186,6 @@ def get_current_price(symbol):
         logging.error(f"Error getting price for {symbol}: {str(e)}")
         return 0
 
-@with_app_context
 def get_candles(symbol, interval, limit):
     cache_key = f"candles_{symbol}_{interval}_{limit}"
     if cache_key in pair_analysis_cache:
@@ -223,7 +202,6 @@ def get_candles(symbol, interval, limit):
                 'limit': limit
             }
         )
-
         candles = [
             {
                 'open': float(candle[1]),
@@ -235,27 +213,54 @@ def get_candles(symbol, interval, limit):
             }
             for candle in data
         ]
-
         pair_analysis_cache[cache_key] = (time.time(), candles)
         return candles
     except Exception as e:
         logging.error(f"Error fetching candles for {symbol}: {str(e)}")
         return []
 
-@with_app_context
+def calculate_depth_change(current_depth, previous_depth):
+    try:
+        if not previous_depth:
+            return 0
+        current_total = sum(float(price) * float(qty) for price, qty in current_depth.get('bids', [])[:10])
+        previous_total = sum(float(price) * float(qty) for price, qty in previous_depth.get('bids', [])[:10])
+        return ((current_total - previous_total) / previous_total) * 100 if previous_total else 0
+    except:
+        return 0
+
+def get_funding_rate(symbol):
+    try:
+        response = requests.get(
+            f"https://fapi.binance.com/fapi/v1/premiumIndex",
+            params={'symbol': symbol},
+            timeout=API_TIMEOUT
+        )
+        response.raise_for_status()
+        data = response.json()
+        return float(data.get('lastFundingRate', 0)) * 100
+    except:
+        return 0
+
 def detect_whale_activity(symbol):
     try:
-        trades = make_request_with_retry(
+        trades_response = requests.get(
             "https://api.binance.com/api/v3/trades",
-            params={'symbol': symbol, 'limit': 1000}
+            params={'symbol': symbol, 'limit': 1000},
+            timeout=API_TIMEOUT
         )
+        trades_response.raise_for_status()
+        trades = trades_response.json()
 
         large_trades = []
         small_trades = []
         
         for trade in trades:
             try:
-                volume = float(trade['price']) * float(trade['qty'])
+                price = float(trade.get('price', 0))
+                quantity = float(trade.get('qty', 0))
+                volume = price * quantity
+                
                 if volume > WHALE_THRESHOLD_LARGE:
                     large_trades.append(trade)
                 elif volume < WHALE_THRESHOLD_SMALL:
@@ -263,25 +268,36 @@ def detect_whale_activity(symbol):
             except (ValueError, TypeError):
                 continue
 
-        depth_data = make_request_with_retry(
+        depth_response = requests.get(
             "https://api.binance.com/api/v3/depth",
-            params={'symbol': symbol, 'limit': 1000}
+            params={'symbol': symbol, 'limit': 1000},
+            timeout=API_TIMEOUT
         )
+        depth_response.raise_for_status()
+        depth_data = depth_response.json()
+        
+        depth_change = calculate_depth_change(depth_data, getattr(detect_whale_activity, 'previous_depth', {}))
+        setattr(detect_whale_activity, 'previous_depth', depth_data)
 
-        large_orders = [
-            order for side in ['bids', 'asks']
-            for order in depth_data.get(side, [])
-            if float(order[0]) * float(order[1]) > WHALE_THRESHOLD_LARGE
-        ]
+        funding_rate = get_funding_rate(symbol)
 
-        whale_score = min(len(large_trades) * 10 + len(large_orders) * 5, 100)
+        large_trades_score = min(len(large_trades) * 10, 40)
+        depth_score = min(abs(depth_change), 30)
+        funding_score = min(abs(funding_rate) * 10, 30)
+        whale_score = large_trades_score + depth_score + funding_score
 
         return {
             'has_whale_activity': whale_score > 50,
             'large_trades_count': len(large_trades),
             'small_trades_count': len(small_trades),
-            'large_orders_count': len(large_orders),
-            'whale_score': round(whale_score, 1)
+            'large_orders_count': len([
+                order for side in ['bids', 'asks']
+                for order in depth_data.get(side, [])
+                if float(order[0]) * float(order[1]) > WHALE_THRESHOLD_LARGE
+            ]),
+            'whale_score': round(whale_score, 1),
+            'funding_rate': round(funding_rate, 4),
+            'depth_change': round(depth_change, 2)
         }
 
     except Exception as e:
@@ -291,10 +307,11 @@ def detect_whale_activity(symbol):
             'large_trades_count': 0,
             'small_trades_count': 0,
             'large_orders_count': 0,
-            'whale_score': 0
+            'whale_score': 0,
+            'funding_rate': 0,
+            'depth_change': 0
         }
 
-@with_app_context
 def analyze_pair(symbol, timeframe, n_candles):
     try:
         current_price = get_current_price(symbol)
@@ -391,6 +408,10 @@ def profitable_pairs_stream():
                 n_candles = int(request.args.get('n_candles', 10))
                 
                 pair_data, message = analyze_pair(symbol, timeframe, n_candles)
+                
+                # Always yield data about analyzed pair
+                analyzed_pairs.add(symbol)
+                
                 if pair_data:
                     yield f"data: {json.dumps({
                         'symbol': symbol,
@@ -400,7 +421,6 @@ def profitable_pairs_stream():
                         'message': message
                     })}\n\n"
                 
-                analyzed_pairs.add(symbol)
                 time.sleep(RATE_LIMIT_DELAY)
 
             except Exception as e:
@@ -481,7 +501,6 @@ def data_stream():
 
 @app.route('/api/market_data/<symbol>')
 def get_market_data(symbol):
-    """API endpoint to get detailed market data for a symbol"""
     try:
         timeframe = request.args.get('timeframe', '1h')
         n_candles = int(request.args.get('n_candles', 24))
@@ -500,7 +519,7 @@ def get_market_data(symbol):
             'current_price': current_price,
             'market_conditions': market_data,
             'whale_activity': whale_data,
-            'candles': candles[-10:],  # Last 10 candles
+            'candles': candles[-10:],
             'timestamp': datetime.now(UTC).isoformat()
         })
         
@@ -509,7 +528,6 @@ def get_market_data(symbol):
 
 @app.route('/api/pairs/status')
 def get_pairs_status():
-    """API endpoint to get analysis status"""
     return jsonify({
         'active_pairs': len(get_active_pairs()),
         'cache_size': len(pair_analysis_cache),
@@ -517,7 +535,6 @@ def get_pairs_status():
     })
 
 def cleanup_cache():
-    """Periodic cache cleanup"""
     while True:
         try:
             current_time = time.time()
@@ -530,10 +547,9 @@ def cleanup_cache():
                     del pair_analysis_cache[key]
         except Exception as e:
             logging.error(f"Cache cleanup error: {str(e)}")
-        time.sleep(60)  # Run every minute
+        time.sleep(60)
 
 def start_background_tasks():
-    """Start background tasks"""
     cleanup_thread = Thread(target=cleanup_cache, daemon=True)
     cleanup_thread.start()
 
@@ -551,4 +567,4 @@ def not_found_error(e):
 
 if __name__ == '__main__':
     start_background_tasks()
-    app.run(debug=True, use_reloader=False, threaded=True)
+    app.run(debug=True, use_reloader=False)

@@ -8,263 +8,142 @@
             margin: 20px; 
             background: #f8f9fa; 
         }
-        .form-container {
+        .stats-container {
             background: white;
             padding: 20px;
             border-radius: 8px;
             margin-bottom: 20px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         }
-        .form-group {
-            margin-bottom: 15px;
+        .pairs-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 15px;
         }
-        label { 
-            display: block; 
-            margin-bottom: 5px; 
-            color: #495057;
+        .pair-card {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         }
-        input, select {
-            padding: 8px;
-            border: 1px solid #ddd;
+        .pair-card.whale-activity {
+            background-color: #fff9e6;
+            border-left: 4px solid #ffd700;
+        }
+        .stats-value {
+            font-weight: bold;
+            color: #007bff;
+        }
+        .whale-indicator {
+            background-color: #fff3cd;
+            color: #856404;
+            padding: 2px 6px;
             border-radius: 4px;
-            width: 200px;
+            margin-left: 5px;
+            font-size: 0.9em;
         }
-        button {
+        .nav-button {
             padding: 10px 20px;
             background-color: #007bff;
             color: white;
             border: none;
             border-radius: 4px;
             cursor: pointer;
-            transition: background-color 0.3s;
-        }
-        button:hover {
-            background-color: #0056b3;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            background: white;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            margin-top: 20px;
-        }
-        th, td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid #ddd;
-        }
-        th { 
-            background-color: #f8f9fa;
-            color: #495057;
-            position: sticky;
-            top: 0;
-        }
-        .green { color: #28a745; }
-        .red { color: #dc3545; }
-        .yellow { color: #ffc107; }
-        .whale-row { background-color: #fff9e6; }
-        .nav-button {
-            padding: 10px 20px;
-            background-color: #6c757d;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
             margin-bottom: 20px;
-        }
-        .stats-container {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin: 20px 0;
-        }
-        .stat-card {
-            background: white;
-            padding: 15px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .market-conditions {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-        .condition-badge {
-            padding: 4px 8px;
-            border-radius: 12px;
-            font-size: 0.9em;
-        }
-        .loading-overlay {
-            display: none;
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(255,255,255,0.9);
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 15px rgba(0,0,0,0.2);
-            z-index: 1000;
         }
     </style>
 </head>
 <body>
     <button class="nav-button" onclick="window.location.href='/'">Back to Dashboard</button>
-    <h1>Profitable Pairs Analysis</h1>
-    
-    <div class="form-container">
-        <form id="analysisForm">
-            <div class="form-group">
-                <label for="timeframe">Timeframe:</label>
-                <select name="timeframe" id="timeframe" required>
-                    <option value="1h">1 hour</option>
-                    <option value="6h">6 hours</option>
-                    <option value="12h">12 hours</option>
-                    <option value="1d">1 day</option>
-                    <option value="1w">1 week</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label for="n_candles">Number of Candles:</label>
-                <input type="number" 
-                       name="n_candles" 
-                       id="n_candles" 
-                       required 
-                       min="1" 
-                       max="1000" 
-                       value="10"
-                       placeholder="Enter number of candles">
-            </div>
-            <button type="submit">Start Analysis</button>
-            <button type="button" id="stopButton" style="display: none;">Stop Analysis</button>
-        </form>
-    </div>
+    <h1>Profitable Pairs</h1>
 
     <div class="stats-container">
-        <div class="stat-card">
-            <h3>Analysis Stats</h3>
-            <div>Pairs Analyzed: <span id="pairsAnalyzed">0</span></div>
-            <div>Profitable Pairs: <span id="profitablePairs">0</span></div>
-            <div>Success Rate: <span id="successRate">0%</span></div>
-        </div>
+        <h2>Analysis Stats</h2>
+        <p>Pairs Analyzed: <span id="analyzed-count" class="stats-value">0</span></p>
+        <p>Profitable Pairs: <span id="profitable-count" class="stats-value">0</span></p>
+        <p>Success Rate: <span id="success-rate" class="stats-value">0.0%</span></p>
     </div>
 
-    <div class="loading-overlay" id="loadingOverlay">
-        Analyzing pairs in real-time...
-        <div id="currentPair"></div>
-    </div>
-
-    <table id="resultsTable">
-        <thead>
-            <tr>
-                <th>Pair</th>
-                <th>Reference Candle</th>
-                <th>Current Price</th>
-                <th>Market Conditions</th>
-                <th>Whale Activity</th>
-                <th>Time Found</th>
-            </tr>
-        </thead>
-        <tbody id="resultsBody"></tbody>
-    </table>
+    <div id="pairs-container" class="pairs-container"></div>
 
     <script>
-        let eventSource = null;
-        let analysisActive = false;
-        const stats = {
-            analyzed: 0,
-            profitable: 0
-        };
+        let analyzedPairs = new Set();
+        let profitablePairs = new Set();
 
         function updateStats() {
-            document.getElementById('pairsAnalyzed').textContent = stats.analyzed;
-            document.getElementById('profitablePairs').textContent = stats.profitable;
-            document.getElementById('successRate').textContent = 
-                ((stats.profitable / stats.analyzed) * 100 || 0).toFixed(1) + '%';
+            const analyzedCount = analyzedPairs.size;
+            const profitableCount = profitablePairs.size;
+            const successRate = analyzedCount > 0 ? 
+                ((profitableCount / analyzedCount) * 100).toFixed(1) : '0.0';
+
+            document.getElementById('analyzed-count').textContent = analyzedCount;
+            document.getElementById('profitable-count').textContent = profitableCount;
+            document.getElementById('success-rate').textContent = successRate + '%';
         }
 
-        function formatDate(isoString) {
-            return new Date(isoString).toLocaleString();
+        function createPairCard(data) {
+            const card = document.createElement('div');
+            card.className = `pair-card ${data.whale_activity.has_whale_activity ? 'whale-activity' : ''}`;
+            card.setAttribute('data-symbol', data.symbol);
+
+            const whaleIndicator = data.whale_activity.has_whale_activity ? 
+                `<span class="whale-indicator">🐋 Whale Score: ${data.whale_activity.whale_score}%</span>` : '';
+
+            card.innerHTML = `
+                <h3>${data.symbol} ${whaleIndicator}</h3>
+                <p>Current Price: $${data.current_price.toFixed(4)}</p>
+                <p>Reference Candle:<br>
+                   Open: $${data.cr_open.toFixed(4)}<br>
+                   Close: $${data.cr_close.toFixed(4)}</p>
+                <p>Market Score: ${data.market_conditions.score}%</p>
+                <p>Trend Strength: ${(data.trend_strength * 100).toFixed(1)}%</p>
+                <p>Last Updated: ${new Date(data.timestamp).toLocaleTimeString()}</p>
+            `;
+
+            return card;
         }
 
-        function startAnalysis() {
-            if (eventSource) {
-                eventSource.close();
-            }
+        const evtSource = new EventSource('/profitable_pairs_stream');
+        
+        evtSource.onmessage = function(event) {
+            const data = JSON.parse(event.data);
             
-            document.getElementById('loadingOverlay').style.display = 'block';
-            document.getElementById('stopButton').style.display = 'inline-block';
-            analysisActive = true;
-
-            eventSource = new EventSource('/profitable_pairs_stream');
-            
-            eventSource.onmessage = function(event) {
-                const data = JSON.parse(event.data);
-                
-                if (data.heartbeat) return;
-                
-                stats.analyzed++;
-                stats.profitable++;
+            if (data.refresh) {
+                analyzedPairs.clear();
+                profitablePairs.clear();
+                document.getElementById('pairs-container').innerHTML = '';
                 updateStats();
-
-                const row = document.createElement('tr');
-                row.className = data.whale_activity.has_whale_activity ? 'whale-row' : '';
-                
-                row.innerHTML = `
-                    <td>${data.symbol}</td>
-                    <td>
-                        Open: $${data.cr_open.toFixed(4)}<br>
-                        Close: $${data.cr_close.toFixed(4)}
-                    </td>
-                    <td class="${data.current_price >= 0.8 * data.cr_close ? 'green' : ''}">
-                        $${data.current_price.toFixed(4)}
-                    </td>
-                    <td>
-                        <div class="market-conditions">
-                            <span class="condition-badge ${data.market_conditions.volatility < 3 ? 'green' : 'red'}">
-                                Volatility: ${data.market_conditions.volatility.toFixed(1)}%
-                            </span>
-                            <span class="condition-badge ${data.market_conditions.volume_trend > 1 ? 'green' : 'yellow'}">
-                                Volume: ${data.market_conditions.volume_trend.toFixed(2)}x
-                            </span>
-                        </div>
-                    </td>
-                    <td>
-                        Score: ${data.whale_activity.whale_score}%<br>
-                        Large Trades: ${data.whale_activity.large_trades_count}
-                    </td>
-                    <td>${formatDate(data.timestamp)}</td>
-                `;
-
-                document.getElementById('resultsBody').prepend(row);
-                document.getElementById('currentPair').textContent = `Last analyzed: ${data.symbol}`;
-            };
-
-            eventSource.onerror = function() {
-                if (analysisActive) {
-                    console.log('Connection lost. Reconnecting...');
-                    setTimeout(startAnalysis, 5000);
-                }
-            };
-        }
-
-        document.getElementById('analysisForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-            document.getElementById('resultsBody').innerHTML = '';
-            stats.analyzed = 0;
-            stats.profitable = 0;
-            updateStats();
-            startAnalysis();
-        });
-
-        document.getElementById('stopButton').addEventListener('click', function() {
-            if (eventSource) {
-                eventSource.close();
-                analysisActive = false;
-                document.getElementById('loadingOverlay').style.display = 'none';
-                document.getElementById('stopButton').style.display = 'none';
+                return;
             }
-        });
+
+            if (!analyzedPairs.has(data.symbol)) {
+                analyzedPairs.add(data.symbol);
+                updateStats();
+            }
+
+            if (data.status === 'success' && data.data) {
+                if (!profitablePairs.has(data.symbol)) {
+                    profitablePairs.add(data.symbol);
+                    updateStats();
+                }
+
+                const existingCard = document.querySelector(`[data-symbol="${data.symbol}"]`);
+                const card = createPairCard(data.data);
+
+                if (existingCard) {
+                    existingCard.replaceWith(card);
+                } else {
+                    document.getElementById('pairs-container').insertBefore(
+                        card, 
+                        document.getElementById('pairs-container').firstChild
+                    );
+                }
+            }
+        };
+
+        evtSource.onerror = function(err) {
+            console.error("EventSource failed:", err);
+        };
     </script>
 </body>
 </html>
