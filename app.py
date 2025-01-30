@@ -217,6 +217,54 @@ def profitable_pairs():
     
     return render_template('profitable_pairs.html', pairs=[])
 
+@app.route('/stream')
+def data_stream():
+    def generate():
+        while True:
+            pairs = get_active_pairs()
+            for symbol in pairs:
+                try:
+                    # Get current price
+                    ticker_response = requests.get(
+                        f"https://api.binance.com/api/v3/ticker/price",
+                        params={'symbol': symbol},
+                        timeout=API_TIMEOUT
+                    )
+                    ticker_data = ticker_response.json()
+                    current_price = float(ticker_data.get('price', 0))
+                    
+                    if current_price == 0:
+                        continue
+
+                    # Get last 3 candles
+                    candles = get_candles(symbol, '1h', 3)
+                    if not candles:
+                        continue
+                    
+                    # Get whale activity
+                    whale_data = detect_whale_activity(symbol)
+
+                    data = {
+                        'symbol': symbol,
+                        'price': current_price,
+                        'candles': [
+                            {
+                                'open': candle['open'],
+                                'close': candle['close'],
+                                'timestamp': candle['timestamp']
+                            } for candle in candles
+                        ],
+                        'whale_activity': whale_data
+                    }
+                    
+                    yield f"data: {json.dumps(data)}\n\n"
+                except Exception as e:
+                    logging.error(f"Error processing {symbol} in stream: {str(e)}")
+                time.sleep(0.5)  # Small delay between symbols
+            time.sleep(10)  # Delay before next update cycle
+    
+    return Response(generate(), mimetype="text/event-stream")
+
 @app.route('/')
 def index():
     return render_template('index.html')

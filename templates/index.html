@@ -24,46 +24,80 @@
         .nav-button:hover {
             background-color: #0056b3;
         }
+        .error-message {
+            color: red;
+            padding: 10px;
+            margin: 10px 0;
+            background: #fee;
+            border-radius: 4px;
+            display: none;
+        }
     </style>
 </head>
 <body>
     <h1 style="color: #2c3e50; margin-bottom: 25px;">🐋 Advanced Whale Detector</h1>
     <button class="nav-button" onclick="window.location.href='/profitable_pairs'">Go to Profitable Pairs</button>
+    <div id="error-container" class="error-message"></div>
     <div id="dashboard"></div>
 
     <script>
         const dashboard = document.getElementById('dashboard');
+        const errorContainer = document.getElementById('error-container');
         
-        const eventSource = new EventSource('/stream');
-        eventSource.onmessage = e => {
-            const data = JSON.parse(e.data);
-            const card = document.createElement('div');
-            
-            card.className = `card ${data.whale_activity.has_whale_activity ? 'whale' : ''}`;
-            
-            let candlesHtml = '<div class="candle-info"><h3>Last 3 Candles:</h3>';
-            data.candles.forEach((candle, index) => {
-                candlesHtml += `
-                    <div>Candle ${index + 1}:
-                        Open: $${candle.open.toFixed(4)},
-                        Close: $${candle.close.toFixed(4)}
-                    </div>`;
-            });
-            candlesHtml += '</div>';
+        function formatDate(timestamp) {
+            return new Date(timestamp).toLocaleString();
+        }
 
-            card.innerHTML = `
-                <div>${data.symbol} - $${data.price.toFixed(4)}</div>
-                <div class="details">
-                    <div>Large Transactions: ${data.whale_activity.large_trades_count}</div>
-                    <div>Small Transactions: ${data.whale_activity.small_trades_count}</div>
-                    <div>Large Orders: ${data.whale_activity.large_orders_count}</div>
-                </div>
-                ${candlesHtml}
-            `;
+        function startEventSource() {
+            const eventSource = new EventSource('/stream');
+            
+            eventSource.onmessage = e => {
+                try {
+                    const data = JSON.parse(e.data);
+                    const card = document.createElement('div');
+                    
+                    card.className = `card ${data.whale_activity.has_whale_activity ? 'whale' : ''}`;
+                    
+                    let candlesHtml = '<div class="candle-info"><h3>Last 3 Candles:</h3>';
+                    data.candles.forEach((candle, index) => {
+                        candlesHtml += `
+                            <div>Candle ${index + 1} (${formatDate(candle.timestamp)}):
+                                Open: $${candle.open.toFixed(4)},
+                                Close: $${candle.close.toFixed(4)}
+                            </div>`;
+                    });
+                    candlesHtml += '</div>';
 
-            dashboard.insertBefore(card, dashboard.firstChild);
-            if(dashboard.children.length > 20) dashboard.lastChild.remove();
-        };
+                    card.innerHTML = `
+                        <div>${data.symbol} - $${data.price.toFixed(4)}</div>
+                        <div class="details">
+                            <div>Large Transactions: ${data.whale_activity.large_trades_count}</div>
+                            <div>Small Transactions: ${data.whale_activity.small_trades_count}</div>
+                            <div>Large Orders: ${data.whale_activity.large_orders_count}</div>
+                        </div>
+                        ${candlesHtml}
+                    `;
+
+                    dashboard.insertBefore(card, dashboard.firstChild);
+                    if(dashboard.children.length > 20) dashboard.lastChild.remove();
+                    
+                    errorContainer.style.display = 'none';
+                } catch (error) {
+                    console.error('Error processing message:', error);
+                    errorContainer.textContent = 'Error processing data. Retrying...';
+                    errorContainer.style.display = 'block';
+                }
+            };
+
+            eventSource.onerror = () => {
+                errorContainer.textContent = 'Connection lost. Reconnecting...';
+                errorContainer.style.display = 'block';
+                eventSource.close();
+                setTimeout(startEventSource, 5000);
+            };
+        }
+
+        startEventSource();
     </script>
 </body>
 </html>
