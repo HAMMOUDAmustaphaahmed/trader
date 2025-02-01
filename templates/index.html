@@ -1,187 +1,159 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>🐋 Advanced Whale Detector</title>
+    <title>Crypto Analyst Pro</title>
     <style>
-        body { 
-            font-family: 'Segoe UI', sans-serif; 
-            margin: 20px; 
-            background: #f8f9fa; 
-        }
-        .card { 
-            background: white;
-            border-radius: 8px;
-            padding: 20px;
-            margin: 15px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            transition: all 0.3s ease;
-            border-left: 4px solid transparent;
-        }
-        .whale { 
-            border-color: #ffd700; 
-            background: #fff9e6; 
-        }
-        .details { 
-            margin-top: 15px; 
-            font-size: 0.9em; 
-            color: #666; 
-        }
-        .candle-info { 
-            margin-top: 10px; 
-            padding: 10px; 
-            background: #f8f9fa; 
-            border-radius: 4px; 
-        }
-        .nav-button {
-            padding: 10px 20px;
-            background-color: #007bff;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            margin-bottom: 20px;
-            transition: background-color 0.3s;
-        }
-        .nav-button:hover {
-            background-color: #0056b3;
-        }
-        .error-message {
-            color: red;
-            padding: 10px;
-            margin: 10px 0;
-            background: #fee;
-            border-radius: 4px;
-            display: none;
-        }
-        .loading {
-            text-align: center;
-            padding: 20px;
-            color: #666;
-        }
-        .details table {
-            border-collapse: collapse;
-            width: 100%;
-            margin-top: 10px;
-            background: #f8f9fa;
-            border-radius: 4px;
-        }
-
-        .details th, .details td {
-            padding: 8px;
-            text-align: center;
-            border: 1px solid #dee2e6;
-            font-size: 0.9em;
-        }
-
-        .details th {
+        body { font-family: Arial, sans-serif; margin: 20px; max-width: 1200px; }
+        .config-box { background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        select, input { padding: 8px; width: 200px; border: 1px solid #ddd; border-radius: 4px; }
+        button { background: #28a745; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #218838; }
+        #loading { display: none; color: #666; margin: 20px 0; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; display: none; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background-color: #f8f9fa; }
+        tr:hover { background-color: #f5f5f5; }
+        .price-up { color: #28a745; }
+        .price-down { color: #dc3545; }
+        .whale-meter { 
             background: #e9ecef;
-            font-weight: 600;
+            height: 24px;
+            border-radius: 12px;
+            position: relative;
+            overflow: hidden;
         }
-
-        .whale-score-high {
-            color: #dc3545;
+        .whale-bar {
+            background: linear-gradient(90deg, #28a745 0%, #ffc107 50%, #dc3545 100%);
+            height: 100%;
+            transition: width 0.3s ease;
         }
-
-        .whale-score-medium {
-            color: #ffc107;
-        }
-
-        .whale-score-low {
-            color: #28a745;
+        .whale-text {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-weight: bold;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+            font-size: 0.9em;
         }
     </style>
 </head>
 <body>
-    <h1 style="color: #2c3e50; margin-bottom: 25px;">🐋 Advanced Whale Detector</h1>
-    <button class="nav-button" onclick="window.location.href='/profitable_pairs'">Go to Profitable Pairs</button>
-    <div id="error-container" class="error-message"></div>
-    <div id="loading" class="loading">Loading data...</div>
-    <div id="dashboard"></div>
+    <div class="config-box">
+        <h2>Analysis Configuration</h2>
+        <form id="configForm" onsubmit="startAnalysis(event)">
+            <div class="form-group">
+                <label for="timeframe">Timeframe:</label>
+                <select id="timeframe" required>
+                    <option value="1h">1 Hour</option>
+                    <option value="6h">6 Hours</option>
+                    <option value="12h">12 Hours</option>
+                    <option value="1d" selected>1 Day</option>
+                    <option value="1w">1 Week</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="candle_count">Candle Count (10-100):</label>
+                <input type="number" id="candle_count" min="10" max="100" value="10" required>
+            </div>
+            <button type="submit">Start Analysis</button>
+        </form>
+    </div>
+
+    <div id="loading">
+        Processed <span id="processed">0</span> of <span id="total">0</span> pairs
+    </div>
+
+    <table id="resultsTable">
+        <thead>
+            <tr>
+                <th>Symbol</th>
+                <th>Ref. Open</th>
+                <th>Ref. Close</th>
+                <th>Current Price</th>
+                <th>Change</th>
+                <th>Whale Activity</th>
+            </tr>
+        </thead>
+        <tbody id="resultsBody"></tbody>
+    </table>
 
     <script>
-        const dashboard = document.getElementById('dashboard');
-        const errorContainer = document.getElementById('error-container');
-        const loadingElement = document.getElementById('loading');
-        
-        function formatDate(timestamp) {
-            return new Date(parseInt(timestamp)).toLocaleString();
+        let eventSource;
+
+        function getWhaleStatus(score) {
+            const percentage = (score / 5) * 100;
+            let status = 'Calm';
+            if (score >= 3) status = 'Active';
+            if (score >= 4) status = 'High';
+            if (score === 5) status = 'Very High';
+            
+            return {
+                percentage,
+                status,
+                class: score >= 3 ? 'active' : 'calm'
+            };
         }
 
-        function startEventSource() {
-            const eventSource = new EventSource('/stream');
+        function startAnalysis(e) {
+            e.preventDefault();
+            const tf = document.getElementById('timeframe').value;
+            const cc = document.getElementById('candle_count').value;
             
-            eventSource.onmessage = e => {
-                loadingElement.style.display = 'none';
-                try {
-                    const data = JSON.parse(e.data);
-                    const card = document.createElement('div');
+            document.getElementById('configForm').style.display = 'none';
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('resultsTable').style.display = 'table';
+            document.getElementById('resultsBody').innerHTML = '';
+            
+            eventSource = new EventSource(`/stream?timeframe=${encodeURIComponent(tf)}&candle_count=${cc}`);
+            
+            eventSource.onmessage = (e) => {
+                const data = JSON.parse(e.data);
+                
+                if (data.total) {
+                    document.getElementById('total').textContent = data.total;
+                } 
+                else if (data.processed) {
+                    document.getElementById('processed').textContent = data.processed;
+                }
+                else if (data.symbol) {
+                    const change = ((data.current_price - data.close) / data.close * 100).toFixed(2);
+                    const whale = getWhaleStatus(data.whale_score);
                     
-                    card.className = `card ${data.whale_activity.has_whale_activity ? 'whale' : ''}`;
-                    
-                    let candlesHtml = '<div class="candle-info"><h3>Last 3 Candles:</h3>';
-                    data.candles.forEach((candle, index) => {
-                        candlesHtml += `
-                            <div>Candle ${index + 1} (${formatDate(candle.timestamp)}):
-                                Open: $${candle.open.toFixed(4)},
-                                Close: $${candle.close.toFixed(4)}
-                            </div>`;
-                    });
-                    candlesHtml += '</div>';
-
-                    <!-- Replace the existing card innerHTML in the script section -->
-                        card.innerHTML = `
-                            <div style="font-size: 1.2em; font-weight: bold;">${data.symbol} - $${data.price.toFixed(4)}</div>
-                            <div class="details">
-                                <table style="width: 100%; margin-top: 10px;">
-                                    <tr>
-                                        <th>Whale Score</th>
-                                        <th>Large TXs</th>
-                                        <th>Small TXs</th>
-                                        <th>Large Orders</th>
-                                        <th>Funding Rate</th>
-                                        <th>Depth Change</th>
-                                    </tr>
-                                    <tr>
-                                        <td>${data.whale_activity.whale_score}%</td>
-                                        <td>${data.whale_activity.large_trades_count}</td>
-                                        <td>${data.whale_activity.small_trades_count}</td>
-                                        <td>${data.whale_activity.large_orders_count}</td>
-                                        <td>${data.whale_activity.funding_rate}%</td>
-                                        <td>${data.whale_activity.depth_change}%</td>
-                                    </tr>
-                                </table>
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${data.symbol}</td>
+                        <td>${data.open.toFixed(4)}</td>
+                        <td>${data.close.toFixed(4)}</td>
+                        <td>${data.current_price.toFixed(4)}</td>
+                        <td class="${change >= 0 ? 'price-up' : 'price-down'}">
+                            ${change}%
+                        </td>
+                        <td style="min-width: 150px;">
+                            <div class="whale-meter">
+                                <div class="whale-bar" style="width: ${whale.percentage}%"></div>
+                                <span class="whale-text">${whale.status} (${data.whale_score}/5)</span>
                             </div>
-                            <div class="candle-info">
-                                <h3>Last 3 Candles:</h3>
-                                ${data.candles.map((candle, index) => `
-                                    <div>Candle ${index + 1} (${formatDate(candle.timestamp)}):
-                                        Open: $${candle.open.toFixed(4)},
-                                        Close: $${candle.close.toFixed(4)}
-                                    </div>
-                                `).join('')}
-                            </div>
-                        `;
-
-                    dashboard.insertBefore(card, dashboard.firstChild);
-                    if(dashboard.children.length > 20) dashboard.lastChild.remove();
-                    
-                    errorContainer.style.display = 'none';
-                } catch (error) {
-                    console.error('Error processing message:', error);
-                    errorContainer.textContent = 'Error processing data. Retrying...';
-                    errorContainer.style.display = 'block';
+                        </td>
+                    `;
+                    document.getElementById('resultsBody').prepend(row);
                 }
             };
 
-            eventSource.onerror = () => {
-                errorContainer.textContent = 'Connection lost. Reconnecting...';
-                errorContainer.style.display = 'block';
+            eventSource.addEventListener('done', () => {
+                document.getElementById('loading').innerHTML = 
+                    `Completed analysis of ${document.getElementById('total').textContent} pairs`;
                 eventSource.close();
-                setTimeout(startEventSource, 5000);
+            });
+
+            eventSource.onerror = () => {
+                eventSource.close();
+                document.getElementById('loading').textContent = 'Connection error - refresh to retry';
             };
         }
-
-        startEventSource();
     </script>
 </body>
 </html>
